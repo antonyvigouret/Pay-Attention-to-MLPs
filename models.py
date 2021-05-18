@@ -42,7 +42,7 @@ class GatingMlpBlock(nn.Module):
         return x + shorcut
 
 
-class GatingMlp(nn.Module):
+class gMLP(nn.Module):
     def __init__(
         self,
         d_model,
@@ -62,7 +62,7 @@ class GatingMlp(nn.Module):
         return x
 
 
-class VisionGatingMlp(nn.Module):
+class VisiongMLP(nn.Module):
     def __init__(
         self,
         image_size,
@@ -76,24 +76,20 @@ class VisionGatingMlp(nn.Module):
         super().__init__()
 
         assert image_size % patch_size == 0
+        self.patch_size = patch_size
         self.n_patches = (image_size // patch_size) ** 2
         self.d_spatial = self.n_patches + 1
 
-        self.patch_embedding = nn.Conv2d(
-            n_channels,
-            d_model,
-            kernel_size=patch_size,
-            stride=patch_size,
-        )
+        self.patch_embedding = nn.Linear(n_channels * patch_size ** 2, d_model)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-        self.gmlp = GatingMlp(d_model, d_ffn, self.d_spatial, n_blocks)
+        self.gmlp = gMLP(d_model, d_ffn, self.d_spatial, n_blocks)
         self.head = nn.Linear(d_model, n_classes)
 
     def forward(self, x):
         n_samples = x.shape[0]
 
+        x = einops.rearrange(x, "n c (h p1) (w p2) -> n (h w) (c p1 p2)", p1=self.patch_size, p2=self.patch_size)
         x = self.patch_embedding(x)
-        x = einops.rearrange(x, "n c h w -> n (h w) c")
         
         cls_token = self.cls_token.expand(n_samples, 1, -1)
         x = torch.cat((cls_token, x), dim=1)
@@ -123,7 +119,7 @@ if __name__ == "__main__":
         "n_classes": n_classes,
     }
 
-    vi_gmlp = VisionGatingMlp(**args)
+    vi_gmlp = VisiongMLP(**args)
     total_params = sum(p.numel() for p in vi_gmlp.parameters() if p.requires_grad)
     print(total_params)
     
