@@ -137,7 +137,6 @@ if __name__ == "__main__":
         },
     }
 
-
     for name, args in configs.items():
         vi_gmlp = VisiongMLP(**args)
         total_params = sum(p.numel() for p in vi_gmlp.parameters() if p.requires_grad)
