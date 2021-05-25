@@ -31,7 +31,7 @@ def train(args, model, train_loader):
         loop = tqdm(train_loader)
         losses = []
         for images, labels in loop:
-            images = images.to(args.devices)
+            images = images.to(args.device)
             preds = model(images)
             loss = criterion(preds, labels)
 
@@ -100,7 +100,7 @@ def main():
 
     # TODO load model with user command line selected config
 
-    model = VisiongMLP(**configs["Ti"]).to(args.device)
+    model = VisiongMLP(**configs["Ti"], prob_0_L=[1, 0.5]).to(args.device)
     train_loader, eval_loader, test_loader = get_loaders(args.per_gpu_train_batch_size, eval_split=0.15)
     print("*** Training ***")
     train(args, model, train_loader)

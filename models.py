@@ -20,7 +20,7 @@ class SpatialGatingUnit(nn.Module):
 
 
 class GatingMlpBlock(nn.Module):
-    def __init__(self, d_model, d_ffn, seq_len):
+    def __init__(self, d_model, d_ffn, seq_len, survival_prob):
         super().__init__()
 
         self.norm = nn.LayerNorm(d_model)
@@ -28,9 +28,13 @@ class GatingMlpBlock(nn.Module):
         self.activation = nn.GELU()
         self.spatial_gating_unit = SpatialGatingUnit(d_ffn, seq_len)
         self.proj_2 = nn.Linear(d_ffn // 2, d_model)
+        self.prob = survival_prob
+        self.m = torch.distributions.bernoulli.Bernoulli(torch.Tensor([self.prob]))
 
     def forward(self, x):
-        shorcut = x
+        if self.training and torch.equal(self.m.sample(), torch.zeros(1)):
+            return x
+        shorcut = x.clone()
         x = self.norm(x)
         x = self.proj_1(x)
         x = self.activation(x)
@@ -46,10 +50,14 @@ class gMLP(nn.Module):
         d_ffn,
         seq_len,
         n_blocks,
+        prob_0_L=[1, 0.5],
     ):
         super().__init__()
 
-        self.blocks = nn.ModuleList([GatingMlpBlock(d_model, d_ffn, seq_len) for _ in range(n_blocks)])
+        self.survival_probs = torch.linspace(prob_0_L[0], prob_0_L[1], n_blocks)
+        self.blocks = nn.ModuleList(
+            [GatingMlpBlock(d_model, d_ffn, seq_len, prob) for prob in self.survival_probs]
+        )
 
     def forward(self, x):
         for gmlp_block in self.blocks:
@@ -67,6 +75,7 @@ class VisiongMLP(nn.Module):
         d_ffn,
         n_blocks,
         n_classes,
+        prob_0_L=[1, 0],
     ):
         super().__init__()
 
@@ -77,7 +86,7 @@ class VisiongMLP(nn.Module):
 
         self.patch_embedding = nn.Linear(n_channels * patch_size ** 2, d_model)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-        self.gmlp = gMLP(d_model, d_ffn, self.seq_len, n_blocks)
+        self.gmlp = gMLP(d_model, d_ffn, self.seq_len, n_blocks, prob_0_L)
         self.head = nn.Linear(d_model, n_classes)
 
     def forward(self, x):
@@ -98,9 +107,9 @@ class VisiongMLP(nn.Module):
 
 
 if __name__ == "__main__":
-    image_size = 256
+    image_size = 224
     n_channels = 3
-    patch_size = 16
+    patch_size = 14
     n_classes = 10
 
     d_model = 128
@@ -116,6 +125,7 @@ if __name__ == "__main__":
             "d_ffn": d_ffn,
             "n_blocks": n_blocks,
             "n_classes": n_classes,
+            "prob_0_L": [1, 0.5],
         },
         "S": {
             "image_size": image_size,
@@ -139,9 +149,10 @@ if __name__ == "__main__":
 
     for name, args in configs.items():
         vi_gmlp = VisiongMLP(**args)
+        vi_gmlp.train()
         total_params = sum(p.numel() for p in vi_gmlp.parameters() if p.requires_grad)
         print(f"{name} total params: ", total_params)
 
-    x = torch.rand((2, 3, 256, 256))
+    x = torch.rand((2, 3, 224, 224))
     y = vi_gmlp(x)
     print("Output shape: ", y.shape)
